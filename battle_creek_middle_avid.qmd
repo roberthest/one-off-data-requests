@@ -1,0 +1,104 @@
+---
+title: "Battle Creek AVID Students"
+author: "Robert Hest"
+date: 2026-10-26
+html:
+  embed-resources: true
+  code-fold: true
+  code-summary: "Show the code"
+execute:
+  warning: false
+---
+
+Kristen Butler (via Holly) is requesting information about the high school outcomes for AVID students who attended Battle Creek MS. Holly is going to pull information for those students but would like my help pulling a list of students and their AVID flags.
+
+```{r}
+#| label: setup
+#| include: false
+list_of_packages <-
+  c(
+    "tidyverse",
+    "rio",
+    "haven",
+    "janitor",
+    "here",
+    "odbc"
+  )
+
+lapply(list_of_packages, library, character.only = TRUE)
+
+here::i_am("battle_creek_middle_avid.qmd")
+
+source("//Data21930/REA Testing/Staff Folders/Robert/coerce_to_common_type.R")
+source("//Data21930/REA Testing/Staff Folders/Robert/campus_sql_connection.r")
+
+```
+
+## Pull Data
+### Student Enrollments
+The request is for students in school years 2023–2025 at Battle Creek MS, including both AVID and non-AVID students. We'll use the EOY MARSS files to pull students with any enrollment spells at Battle Creek MS (310) in these years.
+
+```{r}
+#| label: read-eoy-files
+
+path_eoy <- "//Data21930/REA Testing/Enrollment/MARSSFiles/EOY/FinalDataFiles/"
+
+pattern_eoy <- paste0(
+  "^202[3-5]_MARSS_EOY\\.sav$"
+)
+
+# files_eoy <- list.files(
+#   path = path_eoy,
+#   pattern = pattern_eoy
+# )
+# names(files_eoy) <- files_eoy |> tools::file_path_sans_ext()
+
+# df_eoy_raw <- files_eoy |>
+#   map(
+#     ~ paste0(path_eoy, .x) |>
+#       read_sav(col_select = any_of(c("schnum", "cif", "grade"))) |>
+#       clean_names()
+#   ) |>
+#   list_rbind(names_to = "file") |>
+#   mutate(across(where(is.character), ~ .x |> str_squish() |> na_if(""))) |>
+#   remove_constant()
+
+# df_eoy_raw |> write_rds(here("data-temp", "df_eoy_raw.rds"))
+df_eoy_raw <- read_rds(here("data-temp", "df_eoy_raw.rds"))
+
+df_eoy_bcms <- df_eoy_raw |>
+  filter(schnum == 310)
+```
+
+### Course History to ID AVID students
+
+We'll use AVID course participation to identify AVID students, aligning with the method we use for AVID reporting. We'll get the course information via query of the Campus SQL tables. Ultimately, we want to pull students who have participated in AVID for a full year.
+
+```{r}
+#| label: sql-query
+
+cifs_bcms <- df_eoy_bcms |> distinct(cif) |> pull() |> as.character()
+
+# person_db <- con |>
+#   tbl("Person") |>
+#   select(personID, studentNumber) |>
+#   filter(studentNumber %in% cifs_bcms)
+
+# transcriptcourse_db <- con |>
+#   tbl("TranscriptCourse") |>
+#   select(transcriptID, personID, grade, courseName, courseNumber, endYear, startTerm, endTerm) |>
+#   filter(endYear %in% c(2023:2025), grade %in% c("06", "07", "08"))
+
+# query <- person_db |> inner_join(transcriptcourse_db, "personID")
+
+# df_ch_raw <- query |> collect() |> clean_names()
+# df_ch_raw |> write_rds(here("data-temp", "df_ch_raw.rds"))
+df_ch_raw <- read_rds(here("data-temp", "df_ch_raw.rds"))
+```
+
+```{r}
+avid_regex <- regex("\\bAVID\\b", ignore_case = TRUE)
+
+population_sy_lag0_q1_history_working <- population_sy_lag0_q1_history |>
+  mutate(avid_course = str_detect(course_name, avid_regex))
+```
