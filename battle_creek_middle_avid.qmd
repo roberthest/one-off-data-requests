@@ -72,7 +72,7 @@ df_eoy_bcms <- df_eoy_raw |>
 
 ### Course History to ID AVID students
 
-We'll use AVID course participation to identify AVID students, aligning with the method we use for AVID reporting. We'll get the course information via query of the Campus SQL tables. Ultimately, we want to pull students who have participated in AVID for a full year.
+We'll use AVID course participation to identify AVID students, aligning with the method we use for AVID reporting. We'll get the course information via query of the Campus SQL tables. Ultimately, we want to pull students who have participated in AVID for a full year (i.e., four quarters of participation within a year).
 
 ```{r}
 #| label: sql-query
@@ -86,7 +86,7 @@ cifs_bcms <- df_eoy_bcms |> distinct(cif) |> pull() |> as.character()
 
 # transcriptcourse_db <- con |>
 #   tbl("TranscriptCourse") |>
-#   select(transcriptID, personID, grade, courseName, courseNumber, endYear, startTerm, endTerm) |>
+#   select(transcriptID, personID, grade, courseName, courseNumber, endYear, actualTerm) |>
 #   filter(endYear %in% c(2023:2025), grade %in% c("06", "07", "08"))
 
 # query <- person_db |> inner_join(transcriptcourse_db, "personID")
@@ -97,8 +97,57 @@ df_ch_raw <- read_rds(here("data-temp", "df_ch_raw.rds"))
 ```
 
 ```{r}
+#| label: id-avid
 avid_regex <- regex("\\bAVID\\b", ignore_case = TRUE)
 
-population_sy_lag0_q1_history_working <- population_sy_lag0_q1_history |>
-  mutate(avid_course = str_detect(course_name, avid_regex))
+df_avid <- df_ch_raw |>
+  mutate(
+    avid_course = str_detect(course_name, avid_regex),
+    avid_q1 = avid_course & actual_term == 1,
+    avid_q2 = avid_course & actual_term == 2,
+    avid_q3 = avid_course & actual_term == 3,
+    avid_q4 = avid_course & actual_term == 4,
+    .after = course_name
+  ) |>
+  summarise(
+    avid_yr = all(
+      max(avid_q1),
+      max(avid_q2),
+      max(avid_q3),
+      max(avid_q4),
+      na.rm = TRUE
+    ),
+    .by = c(student_number, end_year)
+  ) |>
+  mutate(student_number = student_number |> as.integer())
+```
+
+## Join enrollments with AVID status
+
+We'll join these yearly AVID participations onto the EOY enrollment file.
+
+```{r}
+#| label: join
+
+df <- df_eoy_bcms |>
+  mutate(
+    end_year = file |> str_sub(start = 1, end = 4) |> as.integer(),
+    .keep = "unused"
+  ) |>
+  left_join(df_avid, join_by(cif == student_number, end_year))
+```
+
+## Write
+
+We will finish by writing the resulting file to disk.
+
+
+```{r}
+#| label: write
+
+filename <- "bcms_avid_23-25"
+
+df |> write_csv(here("data-output", paste0(filename, ".csv")), na = "")
+df |> write_sav(here("data-output", paste0(filename, ".sav")))
+
 ```
